@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "daedalus"
+version = "0.1.0"
+description = "Daedalus (dae) — a self-hosted, teachable AI agent that remembers, writes its own skills, and reaches you on every surface."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Daedalus" }]
+keywords = ["ai", "agent", "react", "llm", "self-hosted", "ollama"]
+
+# Core dependencies are deliberately tiny. Every real model provider speaks the
+# OpenAI-compatible HTTP API, so a single httpx client covers all of them — no
+# heavyweight SDKs. SQLite/FTS5 ships with Python. Heavier capabilities (browser,
+# voice, semantic memory, messaging surfaces, MCP, web host) live in optional
+# extras so the default install stays lean and $0.
+dependencies = [
+    "httpx>=0.27",
+    "pydantic-settings>=2.2",
+    "python-dotenv>=1.0",
+    "rich>=13.7",
+    "textual>=0.60",
+    "ddgs>=6.0",          # keyless DuckDuckGo web search (built-in tool)
+]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.44"]
+# faster-whisper (STT) + piper-tts (TTS); sounddevice/soundfile drive the live mic loop.
+voice = ["faster-whisper>=1.0", "piper-tts>=1.2", "sounddevice>=0.4", "soundfile>=0.12"]
+semantic = ["sentence-transformers>=3.0"]
+telegram = ["python-telegram-bot>=21.0"]
+whatsapp = []  # uses an external Node bridge (M8); no Python dep required
+mcp = ["mcp>=1.0"]
+web = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "jinja2>=3.1", "websockets>=12.0"]
+scheduler = ["apscheduler>=3.10"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.4", "black>=24.0"]
+
+# One console script => `dae` works cross-platform (Windows included) after install.
+[project.scripts]
+dae = "daedalus.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["daedalus"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]  # black owns line length
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"

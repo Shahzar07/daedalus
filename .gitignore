@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Env & secrets
+.env
+*.key
+*.pem
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local editor / tooling settings (per-developer, not shared)
+.claude/settings.local.json
+.vscode/
+.idea/
+
+# Daedalus runtime state (lives in ~/.dae by default; ignore any local copy)
+.dae/
+*.db
+
+# OS
+.DS_Store
+Thumbs.db

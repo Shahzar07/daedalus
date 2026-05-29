@@ -1,0 +1,11 @@
+# Normalize line endings: store text as LF in the repo and check it out as LF
+# everywhere, so the codebase is identical on Windows, macOS, and Linux.
+* text=auto eol=lf
+
+# Binary assets git should never touch.
+*.png binary
+*.jpg binary
+*.gif binary
+*.onnx binary
+*.wav binary
+*.db binary

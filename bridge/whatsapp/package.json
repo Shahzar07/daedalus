@@ -1,0 +1,16 @@
+{
+  "name": "daedalus-whatsapp-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Unofficial WhatsApp bridge for Daedalus (whatsapp-web.js + a tiny localhost HTTP API).",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.23.0"
+  }
+}
