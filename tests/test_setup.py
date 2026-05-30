@@ -25,6 +25,13 @@ def _script(monkeypatch, tmp_path: Path, answers: list[str]) -> Path:
     home = tmp_path / "home"
     monkeypatch.setattr(cli, "get_settings", lambda: Settings(model_provider="mock", dae_home=home))
 
+    # Model selection now fetches the endpoint's catalog; stub it to empty so the wizard
+    # falls back to a typed model name and the suite never touches the network.
+    async def _no_models(*_a, **_k):
+        return []
+
+    monkeypatch.setattr(cli, "_fetch_models", _no_models)
+
     it = iter(answers)
 
     def fake_input(prompt: str = "") -> str:

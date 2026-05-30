@@ -16,10 +16,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+import httpx
 from rich.console import Console
 
 from . import __version__
-from .config import _PROVIDER_DEFAULTS, get_settings
+from .config import _PROVIDER_DEFAULTS, _is_valid_base_url, get_settings
 from .core.curl import CurlConfig, parse_curl
 from .core.events import Event, EventType, get_event_bus
 from .core.llm import LLMProvider, OpenAICompatibleProvider, build_provider
@@ -594,9 +595,9 @@ async def _probe(base_url: str, model: str | None, api_key: str | None) -> tuple
 async def _run_connect(curl_text: str, do_test: bool, env_path: Path) -> int:
     """Parse a curl command, persist a clean custom-provider config, optionally test."""
     cfg = parse_curl(curl_text)
-    if not cfg.base_url:
+    if not cfg.base_url or not _is_valid_base_url(cfg.base_url):
         console.print(
-            "[bold red]Could not find a URL in that curl command.[/]\n"
+            "[bold red]Could not find a valid URL in that curl command.[/]\n"
             "[dim]Paste the full command, including the https:// endpoint.[/]"
         )
         return 1
@@ -627,20 +628,37 @@ async def _run_connect(curl_text: str, do_test: bool, env_path: Path) -> int:
 
 
 def _read_curl_arg(curl: str | None) -> str:
-    """Get the curl text from the argument, or read it from stdin if piped."""
+    r"""Get the curl text from the argument, from piped stdin, or by interactive paste.
+
+    Interactive paste gathers *multiple* lines until a blank line (or EOF). This is the
+    fix for the original corruption bug: reading a single line dropped the ``-H``/``-d``
+    parts of a multi-line curl, and a stray fragment could be mistaken for the base URL
+    (then crash httpx later with "missing protocol"). The usual multi-line shape — with
+    ``\`` / ``^`` continuations — is now captured whole; :func:`parse_curl` normalizes
+    the continuations afterward.
+    """
     if curl:
         return curl
     if not sys.stdin.isatty():
         return sys.stdin.read()
     console.print(
-        "[bold]Paste your curl command, then press Enter:[/]\n"
+        "[bold]Paste your curl command below.[/] "
+        "[dim]Press Enter on a blank line when done.[/]\n"
         "[dim](or run: dae connect 'curl https://HOST/v1/chat/completions "
         '-H "Authorization: Bearer KEY" -d ...\')[/]'
     )
-    try:
-        return console.input("> ")
-    except (EOFError, KeyboardInterrupt):
-        return ""
+    lines: list[str] = []
+    while True:
+        try:
+            line = console.input("> " if not lines else "  ")
+        except (EOFError, KeyboardInterrupt):
+            break
+        if line.strip() == "":
+            if lines:  # a blank line ends the paste once we've collected something
+                break
+            continue  # ignore a stray leading Enter rather than aborting empty
+        lines.append(line)
+    return "\n".join(lines)
 
 
 # ---- `dae setup`: the first-run quick-setup wizard --------------------------
@@ -736,6 +754,103 @@ def _ask(prompt: str, default: str = "") -> str:
     return console.input(prompt).strip() or default
 
 
+def _ask_base_url(initial: str = "") -> str:
+    """Return a valid ``http(s)`` base URL, re-prompting until one is given.
+
+    Guards the classic corruption case at the source: a value with no scheme — e.g. a
+    stray ``-H "..."`` fragment from a mangled curl paste — is rejected here instead of
+    being saved to ``.env`` and crashing httpx on the next run. Empty input is allowed
+    through so the caller can decide whether a missing URL is fatal for its provider.
+    """
+    value = (initial or "").strip()
+    while True:
+        if not value:
+            value = _ask("  base URL (e.g. https://host/v1): ")
+        if not value:
+            return ""
+        if _is_valid_base_url(value):
+            return value
+        console.print(
+            f"[yellow]  '{value}' isn't a valid URL "
+            "(it must start with http:// or https://). Try again.[/]"
+        )
+        value = ""
+
+
+async def _fetch_models(base_url: str | None, api_key: str | None) -> list[str]:
+    """List the model ids an OpenAI-compatible endpoint advertises (best-effort).
+
+    Calls ``GET {base_url}/models`` — the standard catalog endpoint that Ollama, OpenAI,
+    Groq, OpenRouter, Gemini's compat layer, and most proxies expose. Returns a sorted,
+    de-duplicated list of ids (Gemini's ``models/`` prefix stripped so each id is usable
+    as-is), or an empty list on any failure. Never raises: no catalog simply means we
+    fall back to typing a model name by hand.
+    """
+    if not base_url:
+        return []
+    url = base_url.rstrip("/") + "/models"
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:  # noqa: BLE001 - any failure => fall back to manual entry
+        return []
+    rows = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return []
+    ids: set[str] = set()
+    for row in rows:
+        if isinstance(row, dict) and row.get("id"):
+            mid = str(row["id"])
+            if mid.startswith("models/"):  # Gemini compat ids carry this prefix
+                mid = mid[len("models/") :]
+            ids.add(mid)
+    return sorted(ids)
+
+
+async def _choose_model(base_url: str | None, api_key: str | None, default: str = "") -> str:
+    """Let the user pick a model id from the endpoint's catalog, or type their own.
+
+    This is the fix for "it's asking for a model name" — instead of guessing the exact
+    id, the user sees what the endpoint actually offers and selects one. Fetches the
+    catalog, shows a numbered list (a recommended default floated to the top), and
+    accepts either a number or any typed id (catalogs are sometimes incomplete, so a
+    custom id is always allowed). Falls back to a plain text prompt if the catalog can't
+    be fetched.
+    """
+    with console.status("[dim]fetching available models...[/]", spinner="dots"):
+        models = await _fetch_models(base_url, api_key)
+
+    if not models:
+        prompt = f"  model name [{default}]: " if default else "  model name: "
+        return _ask(prompt, default)
+
+    # Float the provider's recommended model to the top if the endpoint advertises it.
+    if default and default in models:
+        models = [default] + [m for m in models if m != default]
+
+    shown = models[:30]  # OpenRouter lists hundreds — cap the on-screen list
+    console.print("\n  [bold]Available models[/] [dim](Enter for #1, or type any id):[/]")
+    for i, mid in enumerate(shown, 1):
+        tag = "  [dim](recommended)[/]" if default and mid == default else ""
+        console.print(f"    [cyan]{i}.[/] {mid}{tag}")
+    if len(models) > len(shown):
+        extra = len(models) - len(shown)
+        console.print(f"    [dim]... and {extra} more (type an id to use one not listed)[/]")
+
+    while True:
+        raw = _ask(f"\n  model [1-{len(shown)} or an id]: ", "1")
+        if raw.isdigit():
+            n = int(raw)
+            if 1 <= n <= len(shown):
+                return shown[n - 1]
+            console.print(f"[yellow]  Pick 1-{len(shown)}, or type a model id.[/]")
+            continue
+        return raw  # a typed id (possibly one beyond the shown slice)
+
+
 def _setup_env_path() -> Path:
     """Where the wizard should write config so it actually takes effect.
 
@@ -802,6 +917,9 @@ async def _configure_provider(env_path: Path) -> None:
         console.print("[dim]  Ollama runs models locally. Not installed? See https://ollama.com[/]")
         model = _ask(f"  model name [{default_model}]: ", default_model)
         host = _ask("  Ollama base URL [http://localhost:11434/v1]: ")
+        if host and not _is_valid_base_url(host):
+            console.print(f"[yellow]  Ignoring '{host}' (not an http:// URL); using default.[/]")
+            host = ""
         updates["MODEL_NAME"] = model
         if host:
             updates["OPENAI_BASE_URL"] = host
@@ -821,12 +939,14 @@ async def _configure_provider(env_path: Path) -> None:
                     f"  [dim]parsed base_url=[/]{cfg.base_url} "
                     f"[dim]model=[/]{cfg.model or '?'} [dim]key=[/]{_mask(cfg.api_key)}"
                 )
-        base_url = cfg.base_url or _ask("  base URL (e.g. https://host/v1): ")
+        base_url = _ask_base_url(cfg.base_url)
         if not base_url:
             console.print("[bold red]  A base URL is required for a custom endpoint.[/]")
             raise SystemExit(1)
         api_key = cfg.api_key or _ask("  API key [blank if none]: ")
-        model = cfg.model or _ask("  model name: ")
+        # Prefer a model from the curl; otherwise try to fetch the endpoint's catalog
+        # so the user can pick instead of guessing the exact id.
+        model = cfg.model or await _choose_model(base_url, api_key)
         updates["OPENAI_BASE_URL"] = base_url
         if api_key:
             updates["OPENAI_API_KEY"] = api_key
@@ -843,10 +963,20 @@ async def _configure_provider(env_path: Path) -> None:
                 "[yellow]  A key is required (or restart and pick Ollama/Mock - no key).[/]"
             )
             api_key = _ask(f"  {key_env}: ")
-        model = _ask(f"  model name [{default_model}]: ", default_model)
+        # Fetch the provider's catalog so the user *selects* a model instead of having
+        # to know the exact id (the heart of the reported pain — a wrong, hand-typed id).
+        model = await _choose_model(_PROVIDER_DEFAULTS[key][0], api_key, default=default_model)
         updates[key_env] = api_key
         updates["MODEL_NAME"] = model
         probe = (_PROVIDER_DEFAULTS[key][0], model, api_key)
+
+    # Switching to a provider that uses its own endpoint? Clear any stale custom-endpoint
+    # settings so a leftover OPENAI_BASE_URL / CUSTOM_CURL from a prior "custom" run can't
+    # shadow the new provider (and resurrect the "missing protocol" class of bug). The
+    # "custom" branch keeps them; "ollama" keeps an explicitly-entered host (set above).
+    if key != "custom":
+        updates.setdefault("OPENAI_BASE_URL", "")
+        updates.setdefault("CUSTOM_CURL", "")
 
     # Offer a live connection test for anything that talks to a real endpoint.
     if probe is not None and _ask("\n  test the connection now? [Y/n]: ", "y").lower() in (

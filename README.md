@@ -11,7 +11,7 @@ artifact, not a framework black box.
 > switch), the web Trace Viewer, the Telegram/WhatsApp gateways, the natural-language
 > scheduler, the MCP client, and the M10 upgrades (reflection, subagents, memory graph,
 > semantic memory, voice) all run today. The whole stack works offline and $0 through the
-> built-in `mock` provider — which is how the **159-test** suite stays green with no network
+> built-in `mock` provider — which is how the **173-test** suite stays green with no network
 > and no keys.
 
 ## Why Daedalus
@@ -68,7 +68,7 @@ UI — offline and free:
 
 ```bash
 MODEL_PROVIDER=mock dae             # try the UI with scripted responses (bash/zsh)
-uv run pytest                       # 159 tests, $0, no network, no keys
+uv run pytest                       # 173 tests, $0, no network, no keys
 ```
 
 > On PowerShell, set it inline: `$env:MODEL_PROVIDER='mock'; dae`
@@ -177,7 +177,7 @@ Secrets live only in `.env` (gitignored) — **never hardcode keys**.
 ## Tests
 
 ```bash
-uv run pytest          # 159 tests, hermetic ($0, no network, no keys)
+uv run pytest          # 173 tests, hermetic ($0, no network, no keys)
 uv run ruff check .    # lint
 uv run black .         # format
 ```

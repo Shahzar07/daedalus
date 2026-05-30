@@ -25,6 +25,19 @@ from .core.curl import CurlConfig, parse_curl
 Provider = Literal["ollama", "groq", "gemini", "openrouter", "openai", "custom", "mock"]
 
 
+def _is_valid_base_url(value: str) -> bool:
+    """True only for a real ``http://``/``https://`` URL.
+
+    This is a guard against a corrupted ``OPENAI_BASE_URL`` — e.g. when a user
+    pastes a multi-line ``curl`` into a single-line prompt and a stray
+    ``-H "..."`` fragment lands in the base-URL field. Such a value has no scheme,
+    so httpx later dies with "Request URL is missing an 'http://' or 'https://'
+    protocol". We'd rather ignore the garbage and fall back to the provider default.
+    """
+    v = value.strip()
+    return v.startswith("http://") or v.startswith("https://")
+
+
 def _global_env_file() -> str:
     """Path to the global ``~/.dae/.env`` (honoring ``DAE_HOME``).
 
@@ -165,12 +178,17 @@ class Settings(BaseSettings):
         Precedence: an explicit ``OPENAI_BASE_URL`` wins (handy for a non-default
         Ollama host or a proxy), then a base URL parsed from a pasted ``CUSTOM_CURL``,
         then the provider's built-in default.
+
+        Each candidate must be a real ``http(s)`` URL to be honored. A malformed
+        ``OPENAI_BASE_URL`` (e.g. a curl fragment with no scheme) is *ignored* rather
+        than passed downstream, where it would crash httpx with a "missing protocol"
+        error — we fall through to the next candidate instead.
         """
-        if self.openai_base_url:
-            return self.openai_base_url
+        if _is_valid_base_url(self.openai_base_url):
+            return self.openai_base_url.strip()
         curl = self.parsed_curl()
-        if curl.base_url:
-            return curl.base_url
+        if curl.base_url and _is_valid_base_url(curl.base_url):
+            return curl.base_url.strip()
         return _PROVIDER_DEFAULTS[self.model_provider][0]
 
     def resolved_api_key(self) -> str | None:
