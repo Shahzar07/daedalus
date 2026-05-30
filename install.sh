@@ -33,7 +33,8 @@ fi
 
 echo ""
 echo "Daedalus is installed. Open a NEW terminal, then just run:"
-echo "  dae                 # full-screen terminal UI"
+echo "  dae                 # first run opens a quick setup wizard, then your UI"
+echo "  dae setup           # re-run that wizard anytime (pick provider + surface)"
 echo "  dae --plain         # minimal REPL"
 echo "  dae --help          # all commands"
 echo ""

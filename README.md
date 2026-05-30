@@ -11,7 +11,7 @@ artifact, not a framework black box.
 > switch), the web Trace Viewer, the Telegram/WhatsApp gateways, the natural-language
 > scheduler, the MCP client, and the M10 upgrades (reflection, subagents, memory graph,
 > semantic memory, voice) all run today. The whole stack works offline and $0 through the
-> built-in `mock` provider — which is how the **148-test** suite stays green with no network
+> built-in `mock` provider — which is how the **159-test** suite stays green with no network
 > and no keys.
 
 ## Why Daedalus
@@ -37,11 +37,18 @@ Requires Python 3.11+ and [`uv`](https://docs.astral.sh/uv/).
 ./install.sh           # macOS / Linux
 ./install.ps1          # Windows (PowerShell)
 
-# 2. Configure (optional — defaults to local Ollama, no keys)
-#    install.* already copied .env.example -> .env; edit it for a hosted provider
+# 2. Run — open a new terminal so `dae` is on PATH, then just:
+dae                    # first run opens a quick setup wizard, then your chosen surface
+```
 
-# 3. Run — open a new terminal so `dae` is on PATH, then:
+On that **first run** Daedalus walks you through a two-step setup — pick a model provider
+(and drop in a key, or paste a provider's `curl`), then pick how you want to talk to it
+(terminal UI, web, Telegram, WhatsApp). It writes your `.env` for you and launches. After
+that:
+
+```bash
 dae                    # full-screen streaming terminal UI (default)
+dae setup              # re-run the wizard anytime (re-pick provider / surface)
 dae --plain            # minimal line REPL
 dae --help             # every command
 ```
@@ -61,7 +68,7 @@ UI — offline and free:
 
 ```bash
 MODEL_PROVIDER=mock dae             # try the UI with scripted responses (bash/zsh)
-uv run pytest                       # 148 tests, $0, no network, no keys
+uv run pytest                       # 159 tests, $0, no network, no keys
 ```
 
 > On PowerShell, set it inline: `$env:MODEL_PROVIDER='mock'; dae`
@@ -73,6 +80,7 @@ uv run pytest                       # 148 tests, $0, no network, no keys
 | `dae` | Full-screen Textual TUI: streaming output, live tool panel, slash commands | core |
 | `dae --plain` | Minimal line REPL (same agent, no TUI) | core |
 | `dae connect '<curl>'` | Connect any OpenAI-compatible endpoint by pasting its curl; live-tests + writes `.env` | core |
+| `dae setup` / `dae init` | Re-run the first-run wizard: pick a provider (+ key or curl) and a surface; writes `.env` | core |
 | `dae serve` / `dae web` | Web chat UI **+ Trace Viewer** at `http://127.0.0.1:8000` | `[web]` |
 | `dae telegram` | Telegram bot gateway (allow-list via `TELEGRAM_ALLOWED_CHAT_IDS`) | `[telegram]` |
 | `dae whatsapp` | Unofficial WhatsApp bridge (QR login, local Node companion) | Node.js |
@@ -141,8 +149,10 @@ uv pip install -e ".[dev]"        # pytest, ruff, black
 
 ## Configuration
 
-Every option is documented in [`.env.example`](.env.example) with safe defaults. Runtime
-state lives in `~/.dae/` (override with `DAE_HOME`):
+Every option is documented in [`.env.example`](.env.example) with safe defaults. The
+first-run wizard (`dae setup`) writes your `.env` for you — a project-local `.env` when you
+run from the repo, otherwise the global `~/.dae/.env` that the installed `dae` command reads
+from any directory. Runtime state lives in `~/.dae/` (override with `DAE_HOME`):
 
 - `SOUL.md` — the agent's persona + operating principles. **Edit it to retune its voice;**
   it takes effect on the next turn.
@@ -167,7 +177,7 @@ Secrets live only in `.env` (gitignored) — **never hardcode keys**.
 ## Tests
 
 ```bash
-uv run pytest          # 148 tests, hermetic ($0, no network, no keys)
+uv run pytest          # 159 tests, hermetic ($0, no network, no keys)
 uv run ruff check .    # lint
 uv run black .         # format
 ```

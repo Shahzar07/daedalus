@@ -33,7 +33,8 @@ if (-not (Test-Path ".env")) {
 
 Write-Host ""
 Write-Host "Daedalus is installed. Open a NEW terminal, then just run:" -ForegroundColor Green
-Write-Host "  dae                 # full-screen terminal UI"
+Write-Host "  dae                 # first run opens a quick setup wizard, then your UI"
+Write-Host "  dae setup           # re-run that wizard anytime (pick provider + surface)"
 Write-Host "  dae --plain         # minimal REPL"
 Write-Host "  dae --help          # all commands"
 Write-Host ""

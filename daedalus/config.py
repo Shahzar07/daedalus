@@ -13,6 +13,7 @@ handle them all.
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -22,6 +23,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from .core.curl import CurlConfig, parse_curl
 
 Provider = Literal["ollama", "groq", "gemini", "openrouter", "openai", "custom", "mock"]
+
+
+def _global_env_file() -> str:
+    """Path to the global ``~/.dae/.env`` (honoring ``DAE_HOME``).
+
+    The first-run wizard writes here when there's no project-local ``.env``, so the
+    installed ``dae`` command carries its config from any working directory. A
+    project-local ``.env`` still wins (it's listed last below, and the last file in a
+    pydantic-settings tuple takes priority).
+    """
+    home = os.environ.get("DAE_HOME") or str(Path.home() / ".dae")
+    return str(Path(home) / ".env")
+
 
 # provider -> (default OpenAI-compatible base URL, name of the key field on Settings).
 # A base URL of None for "custom" means the user MUST supply OPENAI_BASE_URL.
@@ -40,8 +54,12 @@ _PROVIDER_DEFAULTS: dict[str, tuple[str | None, str | None]] = {
 class Settings(BaseSettings):
     # protected_namespaces=() lets us use the natural names model_provider /
     # model_name without pydantic complaining about its reserved "model_" prefix.
+    # Two dotenv sources, lowest priority first: the global ~/.dae/.env (written by the
+    # first-run wizard) then a project-local .env in the current directory, which wins.
+    # Real OS environment variables still override both. (Tests pin this to None — see
+    # tests/conftest.py — so the suite never reads a developer's real .env.)
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(_global_env_file(), ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
